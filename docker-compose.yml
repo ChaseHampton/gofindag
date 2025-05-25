@@ -1,5 +1,6 @@
 services:
   db:
+    platform: linux/amd64
     image: mcr.microsoft.com/mssql/server:2022-latest
     restart: unless-stopped
     environment:
@@ -8,15 +9,18 @@ services:
     ports:
       - "1433:1433"
     volumes:
-      - db_data:/var/opt/mssql/data
+      - db_data:/var/opt/mssql
 
   db-setup:
+    platform: linux/amd64
     image: fabiang/go-sqlcmd
+    depends_on:
+      - db
     environment:
       SA_PASSWORD: ${SA_PASSWORD}
       USER_PASSWORD: ${USER_PASSWORD}
     volumes:
-      - ./sql/.init:/scripts
+      - ./sql:/scripts:ro
     command:
       - -S
       - db
@@ -37,8 +41,3 @@ services:
 
 volumes:
   db_data:
-    driver: local
-    driver_opts:
-      type: none
-      device: ./db_data
-      o: bind

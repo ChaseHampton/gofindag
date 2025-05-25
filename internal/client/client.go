@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/ChaseHampton/gofindag/internal/config"
@@ -30,6 +31,32 @@ func NewClient(cfg *config.HTTPConfig) *Client {
 				MaxConnsPerHost: cfg.MaxConnsPerHost,
 				IdleConnTimeout: cfg.IdleConnTimeout,
 			},
+		},
+		userAgent: cfg.UserAgent,
+	}
+}
+
+func NewPageClient(cfg *config.HTTPConfig) *Client {
+	cookiejar := http.CookieJar(nil)
+	transport := &http.Transport{
+		MaxIdleConns:      cfg.MaxIdleConns,
+		MaxConnsPerHost:   cfg.MaxConnsPerHost,
+		IdleConnTimeout:   cfg.IdleConnTimeout,
+		DisableKeepAlives: true,
+	}
+	if *cfg.ProxyKey != "" && *cfg.ProxyUrl != "" {
+		proxyURL, err := url.Parse(*cfg.ProxyUrl)
+		if err == nil {
+			proxyURL.User = url.User(*cfg.ProxyKey)
+			transport.Proxy = http.ProxyURL(proxyURL)
+		}
+
+	}
+	return &Client{
+		httpClient: &http.Client{
+			Timeout:   cfg.Timeout,
+			Transport: transport,
+			Jar:       cookiejar,
 		},
 		userAgent: cfg.UserAgent,
 	}

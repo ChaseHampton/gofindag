@@ -49,7 +49,7 @@ type Memorial struct {
 	DispositionLong        string                  `json:"dispositionLong,omitempty"`
 	TotalImageCount        int                     `json:"totalImageCount"`
 	ApprovalStatus         string                  `json:"approvalStatus"`
-	MemorialID             int                     `json:"memorialId"`
+	MemorialID             int64                   `json:"memorialId"`
 	BirthDay               int                     `json:"birthDay,omitempty"`
 	IntermentHasPhoto      bool                    `json:"intermentHasPhoto"`
 	FullName               string                  `json:"fullName"`

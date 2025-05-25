@@ -6,6 +6,8 @@ type SearchParams struct {
 	Page      int
 	Limit     int
 	Skip      int
+	FName     *string
+	LName     *string
 }
 
 type SearchResponse struct {
@@ -23,14 +25,14 @@ type SearchResponse struct {
 	DeathYear      string     `json:"deathYear"`
 	Location       string     `json:"location"`
 	SearchURL      string     `json:"searchUrl"`
-	Honoring       Honoring   `json:"honoring"`
-	QueryExecuted  bool       `json:"queryExecuted"`
-	ResponseCode   int        `json:"responseCode"`
-	CountRecord    int        `json:"countRecord"`
-	State          string     `json:"state"`
-	Country        string     `json:"country"`
-	AncestryLogin  bool       `json:"ancestryLogin"`
-	CurrentView    string     `json:"currentView"`
+	// Honoring       Honoring   `json:"honoring"`
+	QueryExecuted bool   `json:"queryExecuted"`
+	ResponseCode  int    `json:"responseCode"`
+	CountRecord   int    `json:"countRecord"`
+	State         string `json:"state"`
+	Country       string `json:"country"`
+	AncestryLogin bool   `json:"ancestryLogin"`
+	CurrentView   string `json:"currentView"`
 }
 
 type Loadmore struct {

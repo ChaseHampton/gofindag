@@ -9,6 +9,7 @@ import (
 type Config struct {
 	HTTPConfig      HTTPConfig
 	ProcessorConfig ProcessorConfig
+	DbConfig        DbConfig
 }
 
 type HTTPConfig struct {
@@ -17,6 +18,8 @@ type HTTPConfig struct {
 	MaxConnsPerHost int
 	UserAgent       string
 	IdleConnTimeout time.Duration
+	ProxyKey        *string
+	ProxyUrl        *string
 }
 
 type ProcessorConfig struct {
@@ -29,16 +32,20 @@ type ProcessorConfig struct {
 }
 
 type DbConfig struct {
-	Host            string
-	Port            int
-	User            string
-	Password        string
-	DBName          string
-	MemorialTvpName string
-	PageTvpName     string
+	Host              string
+	Port              int
+	User              string
+	Password          string
+	DBName            string
+	MemorialTvpName   string
+	PageTvpName       string
+	MemorialIdTvpName string
 }
 
 func NewConfig() *Config {
+	proxykey := os.Getenv("PROXY_KEY")
+	proxyurl := os.Getenv("PROXY_URL")
+	db := NewDbConfig()
 	return &Config{
 		HTTPConfig: HTTPConfig{
 			Timeout:         30 * time.Second,
@@ -46,15 +53,18 @@ func NewConfig() *Config {
 			MaxConnsPerHost: 10,
 			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0",
 			IdleConnTimeout: 30 * time.Second,
+			ProxyKey:        &proxykey,
+			ProxyUrl:        &proxyurl,
 		},
 		ProcessorConfig: ProcessorConfig{
-			MaxConcurrency: 5,
+			MaxConcurrency: 10,
 			RetryAttempts:  3,
 			RetryDelay:     5 * time.Second,
-			PageDelay:      1 * time.Second,
+			PageDelay:      1500 * time.Millisecond,
 			MaxPages:       1000,
 			BaseURL:        "https://www.findagrave.com/memorial/search",
 		},
+		DbConfig: *db,
 	}
 }
 
@@ -71,13 +81,18 @@ func NewDbConfig() *DbConfig {
 	if page == "" {
 		page = "dbo.PageTableType"
 	}
+	memid := os.Getenv("MEMORIAL_ID_TVP_NAME")
+	if memid == "" {
+		memid = "dbo.MemorialIdList"
+	}
 	return &DbConfig{
-		Host:            os.Getenv("DB_HOST"),
-		Port:            port,
-		User:            os.Getenv("DB_USER"),
-		Password:        os.Getenv("DB_PASSWORD"),
-		DBName:          os.Getenv("DB_NAME"),
-		MemorialTvpName: mem,
-		PageTvpName:     page,
+		Host:              os.Getenv("DB_HOST"),
+		Port:              port,
+		User:              os.Getenv("DB_USER"),
+		Password:          os.Getenv("DB_PASSWORD"),
+		DBName:            os.Getenv("DB_NAME"),
+		MemorialTvpName:   mem,
+		PageTvpName:       page,
+		MemorialIdTvpName: memid,
 	}
 }

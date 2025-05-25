@@ -27,3 +27,4 @@ go.work.sum
 db_data/
 sql/.init/
 .vscode/
+.DS_Store
