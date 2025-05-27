@@ -75,7 +75,6 @@ type Memorial struct {
 	TitleName              string                  `json:"titleName"`
 	NameForURL             string                  `json:"nameForURL"`
 
-	// Cemetery-related fields
 	CemeteryStateAbbrev string `json:"cemeteryStateAbbrev,omitempty"`
 	StateName           string `json:"stateName,omitempty"`
 	CemeteryCountyID    int    `json:"cemeteryCountyId,omitempty"`
@@ -93,29 +92,22 @@ type Memorial struct {
 	CemeteryCityID      int    `json:"cemeteryCityId,omitempty"`
 	CemeteryNameForURL  string `json:"cemeteryNameForURL,omitempty"`
 
-	// Geographic coordinates
-	Longitude float64   `json:"longitude,omitempty"`
-	Latitude  float64   `json:"latitude,omitempty"`
-	Location  []float64 `json:"location,omitempty"`
+	Longitude string   `json:"longitude,omitempty"`
+	Latitude  string   `json:"latitude,omitempty"`
+	Location  []string `json:"location,omitempty"`
 
-	// Plot information
 	Plot string `json:"plot,omitempty"`
 
-	// Family relationships
 	Parents  []string `json:"Parents,omitempty"`
 	Spouses  []string `json:"Spouses,omitempty"`
 	Children []string `json:"Children,omitempty"`
 	Siblings []string `json:"Siblings,omitempty"`
 
-	// Maiden name
 	MaidenName string `json:"maidenName,omitempty"`
 
-	// Related contributors
 	RelatedContributors []RelatedContributor `json:"relatedContributors,omitempty"`
 
-	// Limited memorial flag
 	ShowLimitedMemorial bool `json:"showLimitedMemorial,omitempty"`
 
-	// Country abbreviations
 	CemeteryCountryAbbrev string `json:"cemeteryCountryAbbrev,omitempty"`
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/ChaseHampton/gofindag/internal/config"
 	"github.com/ChaseHampton/gofindag/internal/db"
 	"github.com/ChaseHampton/gofindag/internal/search"
-	"github.com/jmoiron/sqlx"
 )
 
 type Processor struct {
@@ -27,6 +26,7 @@ type Processor struct {
 	baseURL        string
 	httpConfig     *config.HTTPConfig
 	config         *config.Config
+	memproc        *MemorialProcessor
 }
 
 type SearchPage struct {
@@ -38,7 +38,7 @@ type SearchPage struct {
 
 type PageHandler func(page *SearchPage, db *db.DbWriter) error
 
-func NewProcessor(client *client.Client, cfg config.ProcessorConfig, http *config.HTTPConfig, config *config.Config) *Processor {
+func NewProcessor(client *client.Client, cfg config.ProcessorConfig, http *config.HTTPConfig, config *config.Config, memproc *MemorialProcessor) *Processor {
 	return &Processor{
 		client:         client,
 		MaxConcurrency: cfg.MaxConcurrency,
@@ -49,13 +49,14 @@ func NewProcessor(client *client.Client, cfg config.ProcessorConfig, http *confi
 		baseURL:        cfg.BaseURL,
 		httpConfig:     http,
 		config:         config,
+		memproc:        memproc,
 	}
 }
 
 func (p *Processor) CollectionStart(ctx context.Context, dbw *db.DbWriter, searchParams *search.SearchParams) error {
 	params := *searchParams
 	url := p.buildSearchURL(*searchParams)
-	pageBatch := 100
+	pageBatch := p.config.ProcessorConfig.BatchSize
 	if url == "" {
 		return fmt.Errorf("failed to build search URL")
 	}
@@ -76,12 +77,11 @@ func (p *Processor) CollectionStart(ctx context.Context, dbw *db.DbWriter, searc
 	}
 
 	fmt.Printf("Collection started with ID: %d\n", collectionId)
-	// fmt.Printf("Got Response: %s\n", string(response.Body))
 
 	totalRecords := searchresp.Total
 	fmt.Printf("Search URL: %s\nTotal Records: %d\n", url, totalRecords)
-	if totalRecords > 49000 {
-		return fmt.Errorf("total records exceed maximum limit: %d", totalRecords)
+	if totalRecords > p.config.ProcessorConfig.BatchSize*p.config.ProcessorConfig.MaxPages {
+		fmt.Println(fmt.Errorf("total records will suppose max page limit\nwill only insert %d pages", p.config.ProcessorConfig.MaxPages))
 	}
 
 	batch := make([]db.PageDto, 0, pageBatch)
@@ -178,7 +178,7 @@ func (p *Processor) makeRequestWithRetry(ctx context.Context, url string) (*clie
 	return nil, fmt.Errorf("failed to get response after %d attempts: %w", p.retryAttmpts+1, lasterr)
 }
 
-func (pp *Processor) ProcessSingleSearch(ctx context.Context, page *db.Page, tvpName string, tx *sqlx.Tx) error {
+func (pp *Processor) ProcessSingleSearch(ctx context.Context, page *db.Page) error {
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("operation cancelled: %w", ctx.Err())
@@ -186,7 +186,6 @@ func (pp *Processor) ProcessSingleSearch(ctx context.Context, page *db.Page, tvp
 	}
 
 	searchUrl := page.SearchUrl
-	// pageStart := time.Now()
 
 	response, err := pp.makeRequestWithRetry(ctx, searchUrl)
 	if err != nil {
@@ -200,51 +199,28 @@ func (pp *Processor) ProcessSingleSearch(ctx context.Context, page *db.Page, tvp
 		return err
 	}
 
-	filtered, err := pp.FilterSeenMemorials(ctx, &searchresp, tx)
+	resultChan := make(chan MemorialBatchResult)
+	batch := MemorialBatch{
+		CollectionId: page.CollectionId,
+		Page:         *page,
+		Memorials:    searchresp.Records,
+		SearchURL:    searchUrl,
+		ResultChan:   resultChan,
+	}
+	fmt.Printf("Received response for page %d with %d records\n", page.PageNumber, len(searchresp.Records))
+	err = pp.memproc.ProcessMemorials(ctx, batch)
 	if err != nil {
-		fmt.Println(fmt.Errorf("failed to filter seen memorials: %w", err))
+		fmt.Println(fmt.Errorf("failed to process memorials: %w", err))
 		return err
 	}
-	if len(filtered.Records) > 0 {
-		if err := db.InsertMemorials(ctx, searchresp, page.CollectionId, page.PageNumber, tvpName, tx); err != nil {
-			fmt.Println(fmt.Errorf("failed to insert memorials: %w", err))
-			return err
-		}
+	result := <-resultChan
+	if result.Error != nil {
+		return fmt.Errorf("failed to process memorials: %w", result.Error)
 	}
-	// fmt.Printf("inserted %d memorials. Filtered %d records that were already seen", len(filtered.Records), len(searchresp.Records)-len(filtered.Records))
-
-	var ids []int64
-	for _, record := range filtered.Records {
+	ids := make([]int64, 0, len(result.Batch.Memorials))
+	for _, record := range result.Batch.Memorials {
 		ids = append(ids, record.MemorialID)
 	}
-	err = db.RecordSeenMemorials(ctx, ids, tx, pp.config.DbConfig.MemorialIdTvpName)
-	if err != nil {
-		fmt.Println(fmt.Errorf("failed to record seen memorials: %w", err))
-		return err
-	}
+	pp.memproc.UpdateSeenCache(ids)
 	return nil
-}
-
-func (pp *Processor) FilterSeenMemorials(ctx context.Context, searchResp *search.SearchResponse, tx *sqlx.Tx) (*search.SearchResponse, error) {
-	var checkIds []int64
-	resp := searchResp
-	for _, record := range resp.Records {
-		checkIds = append(checkIds, record.MemorialID)
-	}
-	seen, err := db.GetSeenMemorials(ctx, checkIds, tx, pp.config.DbConfig.MemorialIdTvpName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get unseen memorial ids: %w", err)
-	}
-	var temp []search.Memorial
-	seenmap := make(map[int64]bool)
-	for _, id := range seen {
-		seenmap[id] = true
-	}
-	for _, record := range resp.Records {
-		if !seenmap[record.MemorialID] {
-			temp = append(temp, record)
-		}
-	}
-	resp.Records = temp
-	return resp, nil
 }

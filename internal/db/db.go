@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -14,13 +15,11 @@ import (
 )
 
 type DbWriter struct {
-	db                *sqlx.DB
-	MemorialTvpName   string
-	pageTvpName       string
-	MemorialIdTvpName string
+	db  *sqlx.DB
+	cfg *config.Config
 }
 
-func NewDb(cfg *config.DbConfig) (*DbWriter, error) {
+func NewDb(cfg *config.DbConfig, appcfg *config.Config) (*DbWriter, error) {
 	connStr := fmt.Sprintf("server=%s;port=%d;database=%s;user id=%s;password=%s;encrypt=true;trustservercertificate=true",
 		cfg.Host, cfg.Port, cfg.DBName, cfg.User, cfg.Password)
 
@@ -36,15 +35,15 @@ func NewDb(cfg *config.DbConfig) (*DbWriter, error) {
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
-	return &DbWriter{db: db, MemorialTvpName: cfg.MemorialTvpName, pageTvpName: cfg.PageTvpName, MemorialIdTvpName: cfg.MemorialIdTvpName}, nil
+	return &DbWriter{db: db, cfg: appcfg}, nil
 }
 
-func InsertMemorials(ctx context.Context, p search.SearchResponse, collectionId int, pagenumber int, tvpName string, tx *sqlx.Tx) error {
-	if len(p.Records) == 0 {
+func (d *DbWriter) InsertMemorials(ctx context.Context, mems []search.Memorial, url string, collectionId int, pagenumber int, tvpName string) error {
+	if len(mems) == 0 {
 		return nil
 	}
 
-	insert_data, err := ConvertPageMemorials(p.Records, p.SearchURL, collectionId, pagenumber)
+	insert_data, err := ConvertPageMemorials(mems, url, collectionId, pagenumber)
 	if err != nil {
 		return fmt.Errorf("failed to convert memorials: %w", err)
 	}
@@ -52,11 +51,36 @@ func InsertMemorials(ctx context.Context, p search.SearchResponse, collectionId 
 		TypeName: tvpName,
 		Value:    insert_data,
 	}
+	_, err = d.db.ExecContext(ctx, "EXEC dbo.BulkInsertMemorials @Memorials = @Memorials", sql.Named("Memorials", tvp))
+	if err != nil {
+		return fmt.Errorf("failed to execute bulk insert: %w", err)
+	}
+
+	return nil
+}
+
+func (d *DbWriter) InsertMemorialDtos(ctx context.Context, mems []MemorialDto) error {
+	if len(mems) == 0 {
+		return nil
+	}
+	tx, err := d.FreshTransaction(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	tvp := mssql.TVP{
+		TypeName: d.cfg.Tvp.MemorialTvpName,
+		Value:    mems,
+	}
 	_, err = tx.ExecContext(ctx, "EXEC dbo.BulkInsertMemorials @Memorials = @Memorials", sql.Named("Memorials", tvp))
 	if err != nil {
 		return fmt.Errorf("failed to execute bulk insert: %w", err)
 	}
 
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
 	return nil
 }
 
@@ -70,7 +94,7 @@ func (d *DbWriter) InsertPage(ctx context.Context, pages []PageDto) error {
 	}
 	defer tx.Rollback()
 	tvp := mssql.TVP{
-		TypeName: d.pageTvpName,
+		TypeName: d.cfg.Tvp.PageTvpName,
 		Value:    pages,
 	}
 	_, err = tx.ExecContext(ctx, "EXEC dbo.BulkInsertPages @Pages = @Pages", sql.Named("Pages", tvp))
@@ -134,12 +158,17 @@ func (d *DbWriter) GetReservedPageBatch(ctx context.Context) ([]Page, error) {
 	return pages, nil
 }
 
-func SetPageFailed(ctx context.Context, pageid int, tx *sqlx.Tx) error {
-	_, err := tx.ExecContext(ctx, "EXEC dbo.MarkPageFailed @PageId = @PageId", sql.Named("PageId", pageid))
+func (d *DbWriter) SetPageFailed(ctx context.Context, pageid int) error {
+	tx, err := d.FreshTransaction(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, "EXEC dbo.MarkPageFailed @PageId = @PageId", sql.Named("PageId", pageid))
 	if err != nil {
 		return fmt.Errorf("failed to set page failed: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (d *DbWriter) SetPageFailedNoTx(ctx context.Context, pageid int) error {
@@ -150,7 +179,7 @@ func (d *DbWriter) SetPageFailedNoTx(ctx context.Context, pageid int) error {
 	return nil
 }
 
-func GetSeenMemorials(ctx context.Context, checkIds []int64, tx *sqlx.Tx, memtvpname string) ([]int64, error) {
+func GetAllSeenMemorialIds(ctx context.Context, checkIds []int64, tx *sqlx.Tx, memtvpname string) ([]int64, error) {
 	if len(checkIds) == 0 {
 		return nil, nil
 	}
@@ -169,6 +198,16 @@ func GetSeenMemorials(ctx context.Context, checkIds []int64, tx *sqlx.Tx, memtvp
 	}
 
 	return ids, err
+}
+
+func (d *DbWriter) GetAllSeenMemorials(ctx context.Context) ([]int64, error) {
+	var ids []int64
+	query := "SELECT MemorialId FROM SeenMemorials"
+	err := d.db.SelectContext(ctx, &ids, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all seen memorial ids: %w", err)
+	}
+	return ids, nil
 }
 
 func RecordSeenMemorials(ctx context.Context, memorialIds []int64, tx *sqlx.Tx, tvpname string) error {
@@ -198,4 +237,35 @@ func RecordSeenMemorials(ctx context.Context, memorialIds []int64, tx *sqlx.Tx, 
 	}
 
 	return nil
+}
+
+func (d *DbWriter) InsertOrUpdateDuplicate(ctx context.Context, dupe DuplicateEntry) error {
+	_, err := d.db.ExecContext(ctx,
+		"EXEC dbo.InsertOrUpdateDuplicate @MemorialId = @MemorialId, @CollectionId = @CollectionId, @PageNumber = @PageNumber, @Json = @Json",
+		sql.Named("MemorialId", dupe.MemorialId),
+		sql.Named("CollectionId", dupe.CollectionId),
+		sql.Named("PageNumber", dupe.PageNumber),
+		sql.Named("Json", dupe.Json),
+	)
+	return err
+}
+
+func (d *DbWriter) BatchInsertDuplicates(ctx context.Context, duplicates []DuplicateEntry) error {
+	if len(duplicates) == 0 {
+		return nil
+	}
+
+	jdata, err := json.Marshal(duplicates)
+	if err != nil {
+		return err
+	}
+
+	_, err = d.db.ExecContext(ctx,
+		"EXEC dbo.BatchInsertDuplicates @DuplicateData = @DuplicateData",
+		sql.Named("DuplicateData", string(jdata)))
+	if err != nil {
+		return err
+	}
+
+	return err
 }

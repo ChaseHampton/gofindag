@@ -25,6 +25,8 @@ go.work.sum
 .env
 
 db_data/
-sql/.init/
+sql/test/
 .vscode/
 .DS_Store
+__debug*
+gofindag

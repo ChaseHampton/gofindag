@@ -11,6 +11,50 @@ services:
     volumes:
       - db_data:/var/opt/mssql
 
+  db-parser:
+    platform: linux/amd64
+    image: fabiang/go-sqlcmd
+    depends_on:
+      - db
+    environment:
+      SA_PASSWORD: ${SA_PASSWORD}
+      USER_PASSWORD: ${USER_PASSWORD}
+    volumes:
+      - ./sql:/scripts:ro
+    command:
+      - -S
+      - db
+      - -U
+      - sa
+      - -P
+      - ${SA_PASSWORD}
+      - -d
+      - gofindag
+      - -i
+      - /scripts/test/runparse.sql
+
+  db-backup:
+    platform: linux/amd64
+    image: fabiang/go-sqlcmd
+    depends_on:
+      - db
+    environment:
+      SA_PASSWORD: ${SA_PASSWORD}
+      USER_PASSWORD: ${USER_PASSWORD}
+    volumes:
+      - ./sql:/scripts:ro
+    command:
+      - -S
+      - db
+      - -U
+      - sa
+      - -P
+      - ${SA_PASSWORD}
+      - -d
+      - master
+      - -i
+      - /scripts/test/backup.sql
+
   db-setup:
     platform: linux/amd64
     image: fabiang/go-sqlcmd
@@ -38,6 +82,5 @@ services:
       - APP_PASSWORD=${USER_PASSWORD}
       - -i
       - /scripts/setup.sql
-
 volumes:
   db_data:

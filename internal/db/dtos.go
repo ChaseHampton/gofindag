@@ -9,6 +9,7 @@ import (
 )
 
 type MemorialDto struct {
+	MemorialId   int64        `db:"MemorialId"`
 	CollectionId int          `db:"CollectionId"`
 	PageNumber   int          `db:"PageNumber"`
 	Json         string       `db:"Json"`
@@ -35,6 +36,13 @@ type CollectionStartDto struct {
 	CollectionId int `db:"NewRecordID"`
 }
 
+type DuplicateEntry struct {
+	MemorialId   int64  `json:"MemorialId" db:"memorial_id"`
+	CollectionId int    `json:"CollectionId" db:"collection_id"`
+	PageNumber   int    `json:"PageNumber" db:"page_number"`
+	Json         string `json:"Json" db:"json"`
+}
+
 type Page struct {
 	PageId        int        `db:"PageId"`
 	CollectionId  int        `db:"CollectionId"`
@@ -54,6 +62,7 @@ func NewMemorialDto(url string, memorial search.Memorial, collectionId int, page
 		return nil, err
 	}
 	return &MemorialDto{
+		MemorialId:   memorial.MemorialID,
 		CollectionId: collectionId,
 		PageNumber:   pagenumber,
 		Json:         string(json),
